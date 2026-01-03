@@ -115,6 +115,11 @@ export class OpenAIEventService {
         if (this.callState.callSid) {
             transcriptStore.addMessage(this.callState.callSid, 'assistant', transcript);
         }
+
+        // End call if assistant says goodbye
+        if (checkForGoodbye(transcript)) {
+            this.onEndCall();
+        }
     }
 
     /**
