@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import ngrok from '@ngrok/ngrok';
+import { execSync, spawn } from 'child_process';
 import { isPortInUse } from './utils/execution-utils.js';
 import { VoiceCallMcpServer } from './servers/mcp.server.js';
 import { TwilioCallService } from './services/twilio/call.service.js';
@@ -15,7 +15,6 @@ const REQUIRED_ENV_VARS = [
     'TWILIO_ACCOUNT_SID',
     'TWILIO_AUTH_TOKEN',
     'OPENAI_API_KEY',
-    'NGROK_AUTHTOKEN',
     'TWILIO_NUMBER'
 ] as const;
 
@@ -43,33 +42,50 @@ function setupPort(): number {
 }
 
 /**
- * Establishes ngrok tunnel for external access
+ * Gets the Tailscale Funnel URL for external access
  * @param portNumber - The port number to forward
- * @returns The public URL provided by ngrok
+ * @returns The public URL provided by Tailscale Funnel
  */
-async function setupNgrokTunnel(portNumber: number): Promise<string> {
-    const listener = await ngrok.forward({
-        addr: portNumber,
-        authtoken_from_env: true
-    });
+async function setupTailscaleFunnel(portNumber: number): Promise<string> {
+    try {
+        // Get the Tailscale status to find the DNS name
+        const statusOutput = execSync('tailscale status --json', { encoding: 'utf-8' });
+        const status = JSON.parse(statusOutput);
+        const dnsName = status.Self?.DNSName?.replace(/\.$/, ''); // Remove trailing dot
 
-    const twilioCallbackUrl = listener.url();
-    if (!twilioCallbackUrl) {
-        throw new Error('Failed to obtain ngrok URL');
+        if (!dnsName) {
+            throw new Error('Could not determine Tailscale DNS name');
+        }
+
+        // Start Tailscale Funnel in the background
+        const funnel = spawn('tailscale', ['funnel', '--bg', String(portNumber)], {
+            detached: true,
+            stdio: 'ignore'
+        });
+        funnel.unref();
+
+        // Give it a moment to start
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const twilioCallbackUrl = `https://${dnsName}`;
+        // Use stderr since stdout is used for MCP protocol
+        console.error(`Tailscale Funnel URL: ${twilioCallbackUrl}`);
+
+        return twilioCallbackUrl;
+    } catch (error) {
+        throw new Error(`Failed to setup Tailscale Funnel: ${error}`);
     }
-
-    return twilioCallbackUrl;
 }
 
 /**
  * Sets up graceful shutdown handlers
  */
-function setupShutdownHandlers(): void {
+function setupShutdownHandlers(portNumber: number): void {
     process.on('SIGINT', async () => {
         try {
-            await ngrok.disconnect();
+            execSync(`tailscale funnel --bg=false ${portNumber} off`, { stdio: 'ignore' });
         } catch (err) {
-            console.error('Error killing ngrok:', err);
+            // Funnel may already be stopped
         }
         process.exit(0);
     });
@@ -108,25 +124,32 @@ async function main(): Promise<void> {
         const sessionManager = new CallSessionManager(twilioClient);
         const twilioCallService = new TwilioCallService(twilioClient);
 
-        // Check if port is already in use
-        const portInUse = await isPortInUse(portNumber);
-        if (portInUse) {
-            scheduleServerRetry(portNumber);
-            return;
-        }
+        // Start Tailscale Funnel and voice server in background (don't block MCP startup)
+        const startBackgroundServices = async () => {
+            // Wait for port to be available
+            let attempts = 0;
+            while (await isPortInUse(portNumber) && attempts < 10) {
+                console.error(`Port ${portNumber} in use, waiting...`);
+                await new Promise(r => setTimeout(r, 2000));
+                attempts++;
+            }
 
-        // Establish ngrok connectivity
-        const twilioCallbackUrl = await setupNgrokTunnel(portNumber);
+            const twilioCallbackUrl = await setupTailscaleFunnel(portNumber);
+            const server = new VoiceServer(twilioCallbackUrl, sessionManager);
+            server.start();
+            twilioCallService.setCallbackUrl(twilioCallbackUrl);
+            setupShutdownHandlers(portNumber);
+            console.error('Voice server ready');
+        };
 
-        // Start the main HTTP server
-        const server = new VoiceServer(twilioCallbackUrl, sessionManager);
-        server.start();
+        // Start background services without blocking
+        startBackgroundServices().catch(err => {
+            console.error('Error starting background services:', err);
+        });
 
-        const mcpServer = new VoiceCallMcpServer(twilioCallService, twilioCallbackUrl);
+        // Start MCP server immediately
+        const mcpServer = new VoiceCallMcpServer(twilioCallService);
         await mcpServer.start();
-
-        // Set up graceful shutdown
-        setupShutdownHandlers();
     } catch (error) {
         console.error('Error starting services:', error);
         process.exit(1);

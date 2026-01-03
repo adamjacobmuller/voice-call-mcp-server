@@ -60,3 +60,6 @@ pids
 
 # ngrok
 .ngrok/
+
+# MCP config (contains credentials)
+.mcp.json

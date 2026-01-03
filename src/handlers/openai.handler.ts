@@ -10,6 +10,7 @@ import { OpenAIEventService } from '../services/openai/event.service.js';
 import { TwilioEventService } from '../services/twilio/event.service.js';
 import { SessionManagerService } from '../services/session-manager.service.js';
 import { TwilioCallService } from '../services/twilio/call.service.js';
+import { transcriptStore } from '../services/transcript.service.js';
 
 dotenv.config();
 
@@ -62,6 +63,7 @@ export class OpenAICallHandler {
     private endCall(): void {
         if (this.callState.callSid) {
             this.twilioCallService.endCall(this.callState.callSid);
+            transcriptStore.endCall(this.callState.callSid);
         }
 
         setTimeout(() => {

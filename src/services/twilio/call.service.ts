@@ -6,6 +6,7 @@ import { DYNAMIC_API_SECRET, RECORD_CALLS } from '../../config/constants.js';
  */
 export class TwilioCallService {
     private readonly twilioClient: twilio.Twilio;
+    private callbackUrl: string = '';
 
     /**
      * Create a new Twilio call service
@@ -13,6 +14,21 @@ export class TwilioCallService {
      */
     constructor(twilioClient: twilio.Twilio) {
         this.twilioClient = twilioClient;
+    }
+
+    /**
+     * Set the callback URL for Twilio webhooks
+     * @param url The callback URL
+     */
+    public setCallbackUrl(url: string): void {
+        this.callbackUrl = url;
+    }
+
+    /**
+     * Get the current callback URL
+     */
+    public getCallbackUrl(): string {
+        return this.callbackUrl;
     }
 
     /**

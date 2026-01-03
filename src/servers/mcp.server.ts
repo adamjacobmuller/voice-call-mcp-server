@@ -2,14 +2,13 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { TwilioCallService } from '../services/twilio/call.service.js';
+import { transcriptStore } from '../services/transcript.service.js';
 
 export class VoiceCallMcpServer {
     private server: McpServer;
     private twilioCallService: TwilioCallService;
-    private twilioCallbackUrl: string;
 
-    constructor(twilioCallService: TwilioCallService, twilioCallbackUrl: string) {
-        this.twilioCallbackUrl = twilioCallbackUrl;
+    constructor(twilioCallService: TwilioCallService, _twilioCallbackUrl?: string) {
         this.twilioCallService = twilioCallService;
 
         this.server = new McpServer({
@@ -33,7 +32,11 @@ export class VoiceCallMcpServer {
             },
             async ({ toNumber, callContext }) => {
                 try {
-                    const callSid = await this.twilioCallService.makeCall(this.twilioCallbackUrl, toNumber, callContext);
+                    const callbackUrl = this.twilioCallService.getCallbackUrl();
+                    if (!callbackUrl) {
+                        throw new Error('Voice server not ready yet. Please wait a moment and try again.');
+                    }
+                    const callSid = await this.twilioCallService.makeCall(callbackUrl, toNumber, callContext);
 
                     return {
                         content: [{
@@ -61,6 +64,105 @@ export class VoiceCallMcpServer {
                 }
             }
         );
+
+        this.server.tool(
+            'get-transcript',
+            'Get the transcript of a call by call SID, or get the latest call transcript if no SID provided',
+            {
+                callSid: z.string().optional().describe('The call SID to get transcript for (optional, defaults to latest)')
+            },
+            async ({ callSid }) => {
+                try {
+                    const transcript = callSid
+                        ? transcriptStore.getTranscript(callSid)
+                        : transcriptStore.getLatestTranscript();
+
+                    if (!transcript) {
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify({
+                                    status: 'not_found',
+                                    message: callSid ? `No transcript found for call ${callSid}` : 'No calls recorded yet'
+                                })
+                            }]
+                        };
+                    }
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                status: 'success',
+                                callSid: transcript.callSid,
+                                fromNumber: transcript.fromNumber,
+                                toNumber: transcript.toNumber,
+                                callContext: transcript.callContext,
+                                callStatus: transcript.status,
+                                startTime: transcript.startTime,
+                                endTime: transcript.endTime,
+                                messages: transcript.messages
+                            }, null, 2)
+                        }]
+                    };
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                status: 'error',
+                                message: `Failed to get transcript: ${errorMessage}`
+                            })
+                        }],
+                        isError: true
+                    };
+                }
+            }
+        );
+
+        this.server.tool(
+            'list-calls',
+            'List recent calls with their transcripts',
+            {
+                limit: z.number().optional().describe('Maximum number of calls to return (default 10)')
+            },
+            async ({ limit }) => {
+                try {
+                    const transcripts = transcriptStore.getRecentTranscripts(limit || 10);
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                status: 'success',
+                                count: transcripts.length,
+                                calls: transcripts.map(t => ({
+                                    callSid: t.callSid,
+                                    toNumber: t.toNumber,
+                                    callStatus: t.status,
+                                    startTime: t.startTime,
+                                    endTime: t.endTime,
+                                    messageCount: t.messages.length
+                                }))
+                            }, null, 2)
+                        }]
+                    };
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                status: 'error',
+                                message: `Failed to list calls: ${errorMessage}`
+                            })
+                        }],
+                        isError: true
+                    };
+                }
+            }
+        );
     }
 
     private registerResources(): void {
@@ -68,14 +170,34 @@ export class VoiceCallMcpServer {
             'get-latest-call',
             new ResourceTemplate('call://transcriptions', { list: undefined }),
             async () => {
-                // TODO: get call transcription
+                const transcript = transcriptStore.getLatestTranscript();
+
+                if (!transcript) {
+                    return {
+                        contents: [{
+                            text: JSON.stringify({
+                                status: 'no_calls',
+                                message: 'No calls recorded yet'
+                            }),
+                            uri: 'call://transcriptions/latest',
+                            mimeType: 'application/json'
+                        }]
+                    };
+                }
+
                 return {
                     contents: [{
                         text: JSON.stringify({
-                            transcription: '{}',
-                            status: 'completed',
-                        }),
-                        uri: 'call://transcriptions/latest',
+                            callSid: transcript.callSid,
+                            fromNumber: transcript.fromNumber,
+                            toNumber: transcript.toNumber,
+                            callContext: transcript.callContext,
+                            status: transcript.status,
+                            startTime: transcript.startTime,
+                            endTime: transcript.endTime,
+                            messages: transcript.messages
+                        }, null, 2),
+                        uri: `call://transcriptions/${transcript.callSid}`,
                         mimeType: 'application/json'
                     }]
                 };
