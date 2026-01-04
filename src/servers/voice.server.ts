@@ -16,7 +16,7 @@ export class VoiceServer {
 
     constructor(callbackUrl: string, sessionManager: CallSessionManager) {
         this.callbackUrl = callbackUrl;
-        this.port = parseInt(process.env.PORT || '3004');
+        this.port = parseInt(process.env.VOICE_PORT || '3004');
         this.app = ExpressWs(express()).app;
         this.sessionManager = sessionManager;
         this.configureMiddleware();
