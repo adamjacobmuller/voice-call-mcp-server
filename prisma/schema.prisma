@@ -1,0 +1,126 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User accounts (self-contained auth)
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions Session[]
+  calls    Call[]
+
+  @@map("users")
+}
+
+// Application sessions
+model Session {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastAccess DateTime @default(now()) @map("last_access")
+  expiresAt  DateTime @map("expires_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// OAuth models (required by @mcpauth/auth)
+model OauthClient {
+  id                      String   @id @default(cuid())
+  clientId                String   @unique @map("client_id")
+  clientSecret            String?  @map("client_secret")
+  tokenEndpointAuthMethod String   @map("token_endpoint_auth_method")
+  name                    String
+  description             String?
+  logoUri                 String?  @map("logo_uri")
+  redirectUris            String[] @map("redirect_uris")
+  grantTypes              String[] @map("grant_types")
+  scope                   String?
+
+  authorizationCodes OauthAuthorizationCode[]
+  tokens             OauthToken[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("oauth_clients")
+}
+
+model OauthAuthorizationCode {
+  authorizationCode    String   @id @map("authorization_code")
+  expiresAt            DateTime @map("expires_at")
+  redirectUri          String   @map("redirect_uri")
+  scope                String?
+  authorizationDetails Json?    @map("authorization_details")
+  codeChallenge        String?  @map("code_challenge")
+  codeChallengeMethod  String?  @map("code_challenge_method")
+
+  clientId String      @map("client_id")
+  client   OauthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String      @map("user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_authorization_codes")
+}
+
+model OauthToken {
+  accessToken           String    @id @map("access_token")
+  accessTokenExpiresAt  DateTime  @map("access_token_expires_at")
+  refreshToken          String?   @unique @map("refresh_token")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  authorizationDetails  Json?     @map("authorization_details")
+
+  clientId String      @map("client_id")
+  client   OauthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String      @map("user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_tokens")
+}
+
+// Call records
+model Call {
+  id          String    @id @default(cuid())
+  callSid     String    @unique @map("call_sid")
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id])
+  fromNumber  String    @map("from_number")
+  toNumber    String    @map("to_number")
+  callContext String?   @map("call_context")
+  status      String    @default("pending")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+
+  messages CallMessage[]
+
+  @@index([userId])
+  @@index([startedAt])
+  @@map("calls")
+}
+
+model CallMessage {
+  id        String   @id @default(cuid())
+  callId    String   @map("call_id")
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  role      String   // 'user' or 'assistant'
+  content   String
+  timestamp DateTime @default(now())
+
+  @@index([callId])
+  @@map("call_messages")
+}
