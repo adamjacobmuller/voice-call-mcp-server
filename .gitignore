@@ -63,3 +63,12 @@ pids
 
 # MCP config (contains credentials)
 .mcp.json
+
+# Prisma
+prisma/migrations/**/migration_lock.toml
+
+# Kubernetes secrets (real values)
+k8s/secret.yaml
+
+# paw (test prompts)
+paw/
