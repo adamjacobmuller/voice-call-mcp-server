@@ -10,7 +10,7 @@ import { OpenAIEventService } from '../services/openai/event.service.js';
 import { TwilioEventService } from '../services/twilio/event.service.js';
 import { SessionManagerService } from '../services/session-manager.service.js';
 import { TwilioCallService } from '../services/twilio/call.service.js';
-import { transcriptStore } from '../services/transcript.service.js';
+import { callPersistenceService } from '../services/call-persistence.service.js';
 
 dotenv.config();
 
@@ -30,7 +30,7 @@ export class OpenAICallHandler {
 
         // Initialize Twilio services
         this.twilioStream = new TwilioWsService(ws, this.callState);
-        this.twilioCallService = new TwilioCallService(twilioClient);
+        this.twilioCallService = new TwilioCallService(twilioClient, process.env.TWILIO_NUMBER || '');
 
         // Initialize OpenAI service
         const openAIConfig: OpenAIConfig = {
@@ -63,7 +63,8 @@ export class OpenAICallHandler {
     private endCall(): void {
         if (this.callState.callSid) {
             this.twilioCallService.endCall(this.callState.callSid);
-            transcriptStore.endCall(this.callState.callSid);
+            callPersistenceService.endCall(this.callState.callSid)
+                .catch(err => console.error('Failed to end call in database:', err));
         }
 
         setTimeout(() => {

@@ -1,4 +1,5 @@
 import twilio from 'twilio';
+import { CallInstance } from 'twilio/lib/rest/api/v2010/account/call.js';
 import { DYNAMIC_API_SECRET, RECORD_CALLS } from '../../config/constants.js';
 
 /**
@@ -7,13 +8,16 @@ import { DYNAMIC_API_SECRET, RECORD_CALLS } from '../../config/constants.js';
 export class TwilioCallService {
     private readonly twilioClient: twilio.Twilio;
     private callbackUrl: string = '';
+    private readonly fromNumber: string;
 
     /**
      * Create a new Twilio call service
      * @param twilioClient The Twilio client
+     * @param fromNumber The Twilio phone number to call from
      */
-    constructor(twilioClient: twilio.Twilio) {
+    constructor(twilioClient: twilio.Twilio, fromNumber: string) {
         this.twilioClient = twilioClient;
+        this.fromNumber = fromNumber;
     }
 
     /**
@@ -29,6 +33,13 @@ export class TwilioCallService {
      */
     public getCallbackUrl(): string {
         return this.callbackUrl;
+    }
+
+    /**
+     * Get the from number
+     */
+    public getFromNumber(): string {
+        return this.fromNumber;
     }
 
     /**
@@ -66,20 +77,27 @@ export class TwilioCallService {
         }
     }
 
+    /**
+     * Make an outbound call
+     * @param toNumber The number to call
+     * @param callContext Context for the call
+     * @returns The Twilio call instance
+     */
+    public async makeCall(toNumber: string, callContext = ''): Promise<CallInstance> {
+        if (!this.callbackUrl) {
+            throw new Error('Callback URL not set');
+        }
 
-    public async makeCall(twilioCallbackUrl: string, toNumber: string, callContext = ''): Promise<string> {
         try {
-            const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+            const callContextEncoded = encodeURIComponent(callContext);
 
-            const callContextEncoded =  encodeURIComponent(callContext);
-
-            const call = await twilioClient.calls.create({
+            const call = await this.twilioClient.calls.create({
                 to: toNumber,
-                from: process.env.TWILIO_NUMBER || '',
-                url: `${twilioCallbackUrl}/call/outgoing?apiSecret=${DYNAMIC_API_SECRET}&callType=outgoing&callContext=${callContextEncoded}`,
+                from: this.fromNumber,
+                url: `${this.callbackUrl}/call/outgoing?apiSecret=${DYNAMIC_API_SECRET}&callType=outgoing&callContext=${callContextEncoded}`,
             });
 
-            return call.sid;
+            return call;
         } catch (error) {
             console.error(`Error making call: ${error}`);
             throw error;

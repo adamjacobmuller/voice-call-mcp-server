@@ -2,7 +2,7 @@ import { CallState } from '../../types.js';
 import { OpenAIContextService } from '../openai/context.service.js';
 import { RECORD_CALLS, SHOW_TIMING_MATH } from '../../config/constants.js';
 import { TwilioCallService } from './call.service.js';
-import { transcriptStore } from '../transcript.service.js';
+import { callPersistenceService } from '../call-persistence.service.js';
 
 /**
  * Service for processing Twilio events
@@ -60,9 +60,29 @@ export class TwilioEventService {
         case 'mark':
             this.handleMarkEvent();
             break;
-        default:
+        case 'stop':
+            await this.handleStopEvent(data);
+            break;
+        case 'connected':
             console.error('Received non-media event:', data.event);
             break;
+        default:
+            console.error('Received unknown event:', data.event);
+            break;
+        }
+    }
+
+    /**
+     * Handle a Twilio stop event (call ended)
+     * @param data The event data
+     */
+    private async handleStopEvent(data: any): Promise<void> {
+        console.error('Received non-media event:', data.event);
+
+        // End the call in the database
+        if (this.callState.callSid) {
+            callPersistenceService.endCall(this.callState.callSid)
+                .catch(err => console.error('Failed to end call in database:', err));
         }
     }
 
@@ -115,13 +135,9 @@ export class TwilioEventService {
         this.contextService.setupConversationContext(this.callState, data.start.customParameters.callContext);
         this.callState.callSid = data.start.callSid;
 
-        // Start transcript for this call
-        transcriptStore.startCall(
-            data.start.callSid,
-            data.start.customParameters.fromNumber || '',
-            data.start.customParameters.toNumber || '',
-            data.start.customParameters.callContext || ''
-        );
+        // Update call status to in_progress (call record was created when MCP tool was invoked)
+        callPersistenceService.updateCallStatus(data.start.callSid, 'in_progress')
+            .catch(err => console.error('Failed to update call status:', err));
     }
 
     /**

@@ -2,7 +2,7 @@ import { WebSocket } from 'ws';
 import { CallState } from '../../types.js';
 import { LOG_EVENT_TYPES, SHOW_TIMING_MATH } from '../../config/constants.js';
 import { checkForGoodbye } from '../../utils/call-utils.js';
-import { transcriptStore } from '../transcript.service.js';
+import { callPersistenceService } from '../call-persistence.service.js';
 
 /**
  * Service for processing OpenAI events
@@ -87,9 +87,10 @@ export class OpenAIEventService {
             content: transcription
         });
 
-        // Save to transcript store
+        // Save to database
         if (this.callState.callSid) {
-            transcriptStore.addMessage(this.callState.callSid, 'user', transcription);
+            callPersistenceService.addMessage(this.callState.callSid, 'user', transcription)
+                .catch(err => console.error('Failed to save user message:', err));
         }
 
         if (checkForGoodbye(transcription)) {
@@ -111,9 +112,10 @@ export class OpenAIEventService {
             content: transcript
         });
 
-        // Save to transcript store
+        // Save to database
         if (this.callState.callSid) {
-            transcriptStore.addMessage(this.callState.callSid, 'assistant', transcript);
+            callPersistenceService.addMessage(this.callState.callSid, 'assistant', transcript)
+                .catch(err => console.error('Failed to save assistant message:', err));
         }
 
         // End call if assistant says goodbye
