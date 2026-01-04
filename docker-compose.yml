@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: voicecall
+      POSTGRES_USER: voicecall
+      POSTGRES_PASSWORD: voicecall_secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voicecall -d voicecall"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+      - "3004:3004"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - VOICE_PORT=3004
+      - DATABASE_URL=postgresql://voicecall:voicecall_secure_password@postgres:5432/voicecall
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_NUMBER=${TWILIO_NUMBER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_WEBSOCKET_URL=${OPENAI_WEBSOCKET_URL:-wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview}
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
+      - MCPAUTH_SECRET=${MCPAUTH_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

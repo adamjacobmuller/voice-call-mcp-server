@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: voice-call-mcp
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - voice.example.com
+      secretName: voice-call-mcp-tls
+  rules:
+    - host: voice.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: voice-call-mcp
+                port:
+                  name: web
+          - path: /call
+            pathType: Prefix
+            backend:
+              service:
+                name: voice-call-mcp
+                port:
+                  name: voice

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-call-mcp
+  labels:
+    app: voice-call-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: voice-call-mcp
+  template:
+    metadata:
+      labels:
+        app: voice-call-mcp
+    spec:
+      containers:
+        - name: voice-call-mcp
+          image: voice-call-mcp:latest
+          ports:
+            - containerPort: 3000
+              name: web
+            - containerPort: 3004
+              name: voice
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: VOICE_PORT
+              value: "3004"
+            - name: BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: voice-call-mcp-config
+                  key: BASE_URL
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: voice-call-mcp-secrets
+                  key: DATABASE_URL
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: voice-call-mcp-secrets
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: voice-call-mcp-secrets
+                  key: TWILIO_AUTH_TOKEN
+            - name: TWILIO_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: voice-call-mcp-secrets
+                  key: TWILIO_NUMBER
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voice-call-mcp-secrets
+                  key: OPENAI_API_KEY
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: web
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 10
